@@ -304,7 +304,7 @@ def browse_catalog(category: str, value: str | None = None, db: Session = Depend
     return {"category": category, "value": value, "products": response_products}
 
 
-MAX_HISTORY_TURNS = 10  # 前端會把最近幾輪對話一起送過來，這裡設個上限避免無限累積、拖垮 token 用量
+MAX_HISTORY_TURNS = 5  # 前端會把最近幾輪對話一起送過來，這裡設個上限避免無限累積、拖垮 token 用量
 
 LOG_PHOTO_RETENTION_DAYS = 90  # 只有低信心的對話才會留客人照片，而且只留這麼久（cleanup_chat_logs.py 負責清）
 

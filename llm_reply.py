@@ -20,6 +20,10 @@ import anthropic
 
 MODEL = os.environ.get("GECKO_SHOP_MODEL", "claude-sonnet-5")
 
+# Haiku 系列不支援 output_config 的 effort 參數（只有 Sonnet/Opus 這種旗艦模型有），
+# 帶了會直接 400 錯誤，所以要照模型名稱判斷要不要加這個參數。
+_SUPPORTS_EFFORT = "haiku" not in MODEL.lower()
+
 SYSTEM_PROMPT = """你是一間守宮（壁虎）專賣店的客服助理，個性親切自然，一律用繁體中文回覆客人，
 語氣像真人小編在聊天，不要條列式、不要出現「候選商品」「清單」這種內部用詞。
 
@@ -94,14 +98,18 @@ def generate_reply(
             messages.append({"role": role, "content": text})
     messages.append({"role": "user", "content": user_content})
 
+    kwargs = {}
+    if _SUPPORTS_EFFORT:
+        # 這個 SDK 版本沒有 temperature 這種傳統取樣參數了，改用 effort 控制
+        # 「多花點心思再回答」——這裡是在陳述價格/庫存這種不能出錯的事實，
+        # 不是自由發揮的創意寫作，效果值得拉高。Haiku 不支援這個參數，跳過。
+        kwargs["output_config"] = {"effort": "high"}
+
     response = client.messages.create(
         model=MODEL,
         max_tokens=500,
         system=SYSTEM_PROMPT,
         messages=messages,
-        # 這個 SDK 版本沒有 temperature 這種傳統取樣參數了，改用 effort 控制
-        # 「多花點心思再回答」——這裡是在陳述價格/庫存這種不能出錯的事實，
-        # 不是自由發揮的創意寫作，效果值得拉高。
-        output_config={"effort": "high"},
+        **kwargs,
     )
     return response.content[0].text
