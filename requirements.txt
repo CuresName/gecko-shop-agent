@@ -6,8 +6,14 @@ pydantic>=2.6.0
 chromadb>=0.5.0
 Pillow>=10.0.0
 numpy>=1.26.0
-sentence-transformers>=3.0.0
 anthropic>=0.40.0
 python-dotenv>=1.0.0
 psycopg[binary]>=3.1.0
 boto3>=1.34.0
+
+# CLIP（embeddings.py）靠 sentence-transformers 帶進 torch，這裡強制用 CPU 版本——
+# Railway 沒有 GPU，預設的 GPU/CUDA 版 torch 又大又吃記憶體，之前部署第一次
+# 就是因為這樣把容器記憶體吃爆、一直重開機。
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.0.0
+sentence-transformers>=3.0.0
