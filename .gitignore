@@ -1,0 +1,17 @@
+.env
+__pycache__/
+*.pyc
+*.db
+chroma_store/
+static/uploads/*
+!static/uploads/.gitkeep
+static/chat_log_photos/*
+!static/chat_log_photos/.gitkeep
+
+# validate_phase1.py 的測試專用資料，理論上跑完會自動清掉，留著以防萬一
+test_gecko_shop.db
+static/_test_uploads/
+_test_chroma_store/
+
+# 舊的專案備份壓縮檔（裡面包了一份 gecko_shop.db），只是本機參考用，不用進版本控制
+Claude outputs/*.zip

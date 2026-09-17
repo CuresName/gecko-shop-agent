@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<title>守宮商品後台</title>
+<style>
+  body { font-family: -apple-system, "PingFang TC", "Noto Sans TC", sans-serif; max-width: 1100px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.1rem; margin-top: 1.5rem; }
+  button { cursor: pointer; padding: 0.45rem 1rem; border-radius: 4px; border: 1px solid #888; background: white; }
+  button.primary { background: #2d7a46; color: white; border-color: #2d7a46; }
+  button:disabled { opacity: 0.55; cursor: default; }
+  .status { font-size: 0.85rem; color: #2d7a46; min-height: 1.2rem; }
+  .hint { font-size: 0.8rem; color: #a06b00; }
+
+  /* 分頁 */
+  .tabs { display: flex; gap: 0.4rem; border-bottom: 2px solid #ddd; margin-top: 1rem; }
+  .tab-btn { border: none; background: none; padding: 0.6rem 1rem; font-size: 1rem; color: #777; border-bottom: 3px solid transparent; margin-bottom: -2px; }
+  .tab-btn.active { color: #2d7a46; border-bottom-color: #2d7a46; font-weight: 600; }
+  .tab-panel { display: none; padding-top: 1rem; }
+  .tab-panel.active { display: block; }
+
+  /* 批量新增 */
+  .batch-defaults { display: flex; gap: 1rem; align-items: flex-end; background: #f7f7f7; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; flex-wrap: wrap; }
+  .batch-defaults label { display: flex; flex-direction: column; font-size: 0.85rem; color: #555; }
+  .batch-defaults input { padding: 0.4rem; font-size: 0.95rem; border: 1px solid #ccc; border-radius: 4px; width: 8rem; }
+
+  /* 商品清單表格 */
+  table { width: 100%; border-collapse: collapse; margin-top: 0.8rem; font-size: 0.9rem; }
+  th, td { border-bottom: 1px solid #ddd; padding: 0.5rem; text-align: left; vertical-align: middle; }
+  td img, .thumb { width: 56px; height: 56px; object-fit: cover; border-radius: 4px; margin-right: 4px; }
+  input.inline-num { width: 70px; padding: 0.25rem; }
+  .inactive-row { opacity: 0.45; }
+
+  /* 檢查彈出視窗 */
+  dialog#reviewDialog { width: min(96vw, 1050px); max-height: 88vh; border: none; border-radius: 10px; padding: 0; }
+  dialog#reviewDialog::backdrop { background: rgba(0,0,0,0.5); }
+  .dialog-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.2rem; border-bottom: 1px solid #e5e2d8; }
+  .dialog-body { padding: 1rem 1.2rem; overflow-y: auto; max-height: 70vh; }
+  .dialog-footer { padding: 0.8rem 1.2rem; border-top: 1px solid #e5e2d8; display: flex; justify-content: space-between; align-items: center; }
+  .review-table input, .review-table textarea { width: 100%; padding: 0.3rem; font-size: 0.85rem; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+  .review-table textarea { resize: vertical; min-height: 2.4rem; }
+  .review-table input.num { width: 5.5rem; }
+  .row-error { color: #b3261e; font-size: 0.78rem; }
+  .row-status { font-size: 0.8rem; white-space: nowrap; }
+  .row-status.saved { color: #2d7a46; font-weight: 600; }
+  .row-status.failed { color: #b3261e; font-weight: 600; }
+
+  /* 低信心覆核 */
+  #reviewBadge { background: #b3261e; color: white; border-radius: 999px; font-size: 0.7rem; padding: 0.05rem 0.4rem; margin-left: 0.2rem; }
+  .review-card { display: flex; gap: 0.9rem; background: #fff; border: 1px solid #e5e2d8; border-radius: 8px; padding: 0.8rem; margin-bottom: 0.7rem; }
+  .review-card.reviewed { opacity: 0.5; }
+  .review-card .thumb { width: 72px; height: 72px; border-radius: 6px; object-fit: cover; flex-shrink: 0; }
+  .review-card .meta { flex: 1; font-size: 0.88rem; }
+  .review-card .reason { color: #a06b00; font-size: 0.8rem; margin-bottom: 0.3rem; }
+  .review-card .bubble-label { color: #777; font-size: 0.78rem; margin-top: 0.3rem; }
+  .review-card .timestamp { color: #999; font-size: 0.78rem; }
+</style>
+</head>
+<body>
+
+<h1>🦎 守宮商品後台</h1>
+<p>在這裡新增商品、上傳照片、之後隨時改庫存跟價格。這就是聊天機器人回覆客人時查的那份資料。</p>
+
+<div class="tabs">
+  <button class="tab-btn active" data-tab="batch">批量新增</button>
+  <button class="tab-btn" data-tab="list">商品清單</button>
+  <button class="tab-btn" data-tab="review">低信心覆核 <span id="reviewBadge"></span></button>
+</div>
+
+<!-- ========== 分頁一：批量新增 ========== -->
+<section id="tab-batch" class="tab-panel active">
+  <div class="batch-defaults">
+    <label>批次預設價格 (NT$)
+      <input type="number" id="defaultPrice" value="1500" min="0" step="1" />
+    </label>
+    <label>批次預設庫存
+      <input type="number" id="defaultStock" value="1" min="0" step="1" />
+    </label>
+    <label style="flex: 1; min-width: 220px;">照片（可多選，一張照片＝一筆新商品）
+      <input type="file" id="batchPhotos" accept="image/*" multiple />
+    </label>
+    <button class="primary" id="batchTagBtn">✨ AI 批量標籤</button>
+  </div>
+  <div class="status" id="batchStatus"></div>
+  <p class="hint">選好照片、設定好預設價格/庫存後按「AI 批量標籤」，會逐張請 AI 猜物種/樣式/描述，
+    猜完會跳出檢查視窗，你可以在裡面個別修改，確認一筆就存一筆。</p>
+</section>
+
+<!-- ========== 分頁二：商品清單 ========== -->
+<section id="tab-list" class="tab-panel">
+  <table>
+    <thead>
+      <tr><th>照片</th><th>物種 / 樣式</th><th>價格</th><th>庫存</th><th>精選</th><th>狀態</th><th>操作</th></tr>
+    </thead>
+    <tbody id="productTableBody">
+      <tr><td colspan="7">載入中...</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ========== 分頁三：低信心覆核 ========== -->
+<section id="tab-review" class="tab-panel">
+  <p class="hint">這裡列出系統「沒什麼把握」的對話——照片比對不到/比對得不夠準，或文字完全查不到關鍵字。
+    看過覺得沒問題就按「標記已看過」，佇列會自動變短；全部對話（含一般對話）的完整紀錄不會顯示在這裡，
+    只有這種被標記的才會出現。</p>
+  <label style="font-size:0.85rem; color:#555; display:flex; align-items:center; gap:0.4rem; margin-bottom:0.6rem;">
+    <input type="checkbox" id="includeReviewedCheckbox" style="width:auto" />
+    也顯示已經看過的
+  </label>
+  <div id="reviewList"></div>
+</section>
+
+<!-- ========== 檢查彈出視窗 ========== -->
+<dialog id="reviewDialog">
+  <div class="dialog-header">
+    <strong>檢查 AI 標籤建議</strong>
+    <button id="closeDialogBtn" title="關閉">✕</button>
+  </div>
+  <div class="dialog-body">
+    <table class="review-table">
+      <thead>
+        <tr>
+          <th>照片</th><th>物種</th><th>樣式</th><th>描述</th>
+          <th>價格</th><th>庫存</th><th>精選</th><th>狀態</th><th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="reviewTableBody"></tbody>
+    </table>
+  </div>
+  <div class="dialog-footer">
+    <span class="hint" id="reviewSummary"></span>
+    <div>
+      <button id="confirmAllBtn">全部確認新增</button>
+      <button class="primary" id="doneDialogBtn">完成</button>
+    </div>
+  </div>
+</dialog>
+
+<script>
+const API = "";  // 同一個網域，不需要另外指定
+
+/* ---------- 分頁切換 ---------- */
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById(`tab-${btn.dataset.tab}`).classList.add("active");
+    if (btn.dataset.tab === "list") loadProducts();
+    if (btn.dataset.tab === "review") loadReviewQueue();
+  });
+});
+
+/* ---------- 商品清單（分頁二） ---------- */
+async function loadProducts() {
+  const res = await fetch(`${API}/products?include_inactive=true`);
+  const products = await res.json();
+  const tbody = document.getElementById("productTableBody");
+  tbody.innerHTML = "";
+
+  if (products.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7">還沒有商品，先去「批量新增」分頁加幾筆看看。</td></tr>`;
+    return;
+  }
+
+  for (const p of products) {
+    const tr = document.createElement("tr");
+    if (!p.is_active) tr.classList.add("inactive-row");
+
+    const photosHtml = p.photos.map(ph => `<img src="/media/uploads/${ph.file_path}" alt="">`).join("");
+
+    tr.innerHTML = `
+      <td>${photosHtml || "（無照片）"}</td>
+      <td><strong>${p.species}</strong><br><span style="color:#666">${p.morph_name}</span></td>
+      <td><input class="inline-num" type="number" value="${p.price}" data-field="price" data-id="${p.id}"></td>
+      <td><input class="inline-num" type="number" value="${p.stock_qty}" data-field="stock_qty" data-id="${p.id}"></td>
+      <td><input type="checkbox" data-field="is_featured" data-id="${p.id}" ${p.is_featured ? "checked" : ""}></td>
+      <td>${p.is_active ? "上架中" : "已下架"}</td>
+      <td>
+        <button data-action="save" data-id="${p.id}">儲存</button>
+        <button data-action="toggle" data-id="${p.id}" data-active="${p.is_active}">${p.is_active ? "下架" : "上架"}</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+document.getElementById("productTableBody").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  const id = btn.dataset.id;
+
+  if (btn.dataset.action === "save") {
+    const row = btn.closest("tr");
+    const price = row.querySelector('[data-field="price"]').value;
+    const stock_qty = row.querySelector('[data-field="stock_qty"]').value;
+    const is_featured = row.querySelector('[data-field="is_featured"]').checked;
+    await fetch(`${API}/products/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ price: Number(price), stock_qty: Number(stock_qty), is_featured }),
+    });
+    await loadProducts();
+  }
+
+  if (btn.dataset.action === "toggle") {
+    const nowActive = btn.dataset.active === "true";
+    await fetch(`${API}/products/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_active: !nowActive }),
+    });
+    await loadProducts();
+  }
+});
+
+/* ---------- 批量新增（分頁一） ---------- */
+let batchFiles = [];        // File 物件陣列，跟 rows 用同一個索引對應
+let batchSuggestions = [];  // 每張照片對應的建議/目前編輯值
+
+const reviewDialog = document.getElementById("reviewDialog");
+const reviewTableBody = document.getElementById("reviewTableBody");
+const batchStatus = document.getElementById("batchStatus");
+
+document.getElementById("batchTagBtn").addEventListener("click", async () => {
+  const input = document.getElementById("batchPhotos");
+  if (!input.files.length) {
+    batchStatus.textContent = "先選幾張照片，才能批量標籤喔";
+    return;
+  }
+
+  batchFiles = Array.from(input.files);
+  const defaultPrice = Number(document.getElementById("defaultPrice").value) || 0;
+  const defaultStock = Number(document.getElementById("defaultStock").value) || 0;
+
+  const btn = document.getElementById("batchTagBtn");
+  btn.disabled = true;
+  batchStatus.textContent = `AI 分析中...（共 ${batchFiles.length} 張，逐張判斷需要一點時間，請稍候）`;
+
+  try {
+    const formData = new FormData();
+    batchFiles.forEach(f => formData.append("photos", f));
+    const res = await fetch(`${API}/products/suggest_tags_batch`, { method: "POST", body: formData });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+
+    batchSuggestions = data.suggestions.map(s => ({
+      species: s.species || "",
+      morph_name: s.morph_name || "",
+      description: s.description || "",
+      confidence_note: s.confidence_note || "",
+      error: s.error || null,
+      price: defaultPrice,
+      stock_qty: defaultStock,
+      is_featured: false,
+      status: "pending",  // pending / saving / saved / failed
+    }));
+
+    renderReviewTable();
+    reviewDialog.showModal();
+    batchStatus.textContent = "";
+  } catch (err) {
+    batchStatus.textContent = "批量標籤失敗：" + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function renderReviewTable() {
+  reviewTableBody.innerHTML = "";
+  batchSuggestions.forEach((s, i) => {
+    const file = batchFiles[i];
+    const thumbUrl = URL.createObjectURL(file);
+    const tr = document.createElement("tr");
+    tr.dataset.index = i;
+
+    const statusText = { pending: "待確認", saving: "存檔中...", saved: "✅ 已新增", failed: "❌ 失敗" }[s.status];
+    const statusClass = s.status === "saved" ? "saved" : (s.status === "failed" ? "failed" : "");
+    const disabled = s.status === "saved" ? "disabled" : "";
+
+    tr.innerHTML = `
+      <td><img class="thumb" src="${thumbUrl}" alt=""></td>
+      <td><input class="f-species" value="${escapeAttr(s.species)}" ${disabled}></td>
+      <td><input class="f-morph" value="${escapeAttr(s.morph_name)}" ${disabled}></td>
+      <td><textarea class="f-desc" ${disabled}>${escapeHtml(s.description)}</textarea>
+        ${s.confidence_note ? `<div class="hint">${escapeHtml(s.confidence_note)}</div>` : ""}
+        ${s.error ? `<div class="row-error">${escapeHtml(s.error)}</div>` : ""}
+      </td>
+      <td><input class="f-price num" type="number" min="0" value="${s.price}" ${disabled}></td>
+      <td><input class="f-stock num" type="number" min="0" value="${s.stock_qty}" ${disabled}></td>
+      <td><input class="f-featured" type="checkbox" ${s.is_featured ? "checked" : ""} ${disabled}></td>
+      <td class="row-status ${statusClass}">${statusText}</td>
+      <td>${s.status === "saved" ? "" : `<button class="confirm-row-btn" data-index="${i}">確認新增</button>`}</td>
+    `;
+    reviewTableBody.appendChild(tr);
+  });
+  updateReviewSummary();
+}
+
+function updateReviewSummary() {
+  const total = batchSuggestions.length;
+  const saved = batchSuggestions.filter(s => s.status === "saved").length;
+  document.getElementById("reviewSummary").textContent = `共 ${total} 張，已新增 ${saved} 筆`;
+}
+
+function escapeHtml(text) {
+  const div = document.createElement("div");
+  div.textContent = text || "";
+  return div.innerHTML;
+}
+function escapeAttr(text) {
+  return escapeHtml(text).replace(/"/g, "&quot;");
+}
+
+async function saveRow(index) {
+  const row = reviewTableBody.querySelector(`tr[data-index="${index}"]`);
+  const s = batchSuggestions[index];
+
+  const species = row.querySelector(".f-species").value.trim();
+  const morph_name = row.querySelector(".f-morph").value.trim();
+  const description = row.querySelector(".f-desc").value.trim();
+  const price = Number(row.querySelector(".f-price").value);
+  const stock_qty = Number(row.querySelector(".f-stock").value);
+  const is_featured = row.querySelector(".f-featured").checked;
+
+  if (!species || !morph_name) {
+    alert("物種、樣式不能空白，先補一下再確認");
+    return;
+  }
+  if (price <= 0 || stock_qty <= 0) {
+    const what = price <= 0 && stock_qty <= 0 ? "價格跟庫存都是 0" : (price <= 0 ? "價格是 0" : "庫存是 0");
+    if (!confirm(`這筆的${what}，確定要這樣新增嗎？`)) return;
+  }
+
+  s.status = "saving";
+  renderReviewTable();
+
+  try {
+    const formData = new FormData();
+    formData.append("species", species);
+    formData.append("morph_name", morph_name);
+    formData.append("price", price);
+    formData.append("stock_qty", stock_qty);
+    formData.append("description", description);
+    formData.append("is_featured", is_featured ? "true" : "false");
+    formData.append("photos", batchFiles[index]);
+
+    const res = await fetch(`${API}/products`, { method: "POST", body: formData });
+    if (!res.ok) throw new Error(await res.text());
+
+    s.status = "saved";
+  } catch (err) {
+    s.status = "failed";
+    s.error = "新增失敗：" + err.message;
+  }
+  renderReviewTable();
+}
+
+reviewTableBody.addEventListener("click", (e) => {
+  const btn = e.target.closest(".confirm-row-btn");
+  if (!btn) return;
+  saveRow(Number(btn.dataset.index));
+});
+
+document.getElementById("confirmAllBtn").addEventListener("click", async () => {
+  for (let i = 0; i < batchSuggestions.length; i++) {
+    if (batchSuggestions[i].status === "pending") {
+      await saveRow(i);
+    }
+  }
+});
+
+document.getElementById("closeDialogBtn").addEventListener("click", () => reviewDialog.close());
+document.getElementById("doneDialogBtn").addEventListener("click", () => reviewDialog.close());
+reviewDialog.addEventListener("close", () => {
+  document.getElementById("batchPhotos").value = "";
+  const savedCount = batchSuggestions.filter(s => s.status === "saved").length;
+  batchStatus.textContent = savedCount ? `這批已新增 ${savedCount} 筆商品` : "";
+  loadProducts();
+});
+
+/* ---------- 低信心覆核（分頁三） ---------- */
+async function loadReviewQueue() {
+  const includeReviewed = document.getElementById("includeReviewedCheckbox").checked;
+  const res = await fetch(`${API}/chat_logs?low_confidence_only=true&include_reviewed=${includeReviewed}`);
+  const logs = await res.json();
+  renderReviewQueue(logs);
+}
+
+function renderReviewQueue(logs) {
+  const listEl = document.getElementById("reviewList");
+  listEl.innerHTML = "";
+
+  if (logs.length === 0) {
+    listEl.innerHTML = `<p class="hint">目前沒有需要覆核的對話，都處理完了 🎉</p>`;
+  }
+
+  for (const log of logs) {
+    const card = document.createElement("div");
+    card.className = "review-card" + (log.reviewed ? " reviewed" : "");
+    const thumbHtml = log.photo_path
+      ? `<img class="thumb" src="/media/chat_log_photos/${log.photo_path}" alt="">`
+      : `<div class="thumb" style="background:#eee;display:flex;align-items:center;justify-content:center;color:#999;font-size:0.75rem;">${log.had_photo ? "無留底" : "純文字"}</div>`;
+
+    card.innerHTML = `
+      ${thumbHtml}
+      <div class="meta">
+        <div class="reason">⚠️ ${escapeHtml(log.low_confidence_reason)}</div>
+        <div><strong>客人：</strong>${escapeHtml(log.customer_message || "（只傳照片，沒有打字）")}</div>
+        <div class="bubble-label"><strong>系統回覆：</strong>${escapeHtml(log.reply)}</div>
+        <div class="timestamp">${new Date(log.created_at).toLocaleString("zh-TW")}</div>
+      </div>
+      <div>
+        ${log.reviewed ? "" : `<button class="mark-reviewed-btn" data-id="${log.id}">標記已看過</button>`}
+      </div>
+    `;
+    listEl.appendChild(card);
+  }
+
+  document.getElementById("reviewBadge").textContent = logs.filter(l => !l.reviewed).length || "";
+}
+
+document.getElementById("reviewList").addEventListener("click", async (e) => {
+  const btn = e.target.closest(".mark-reviewed-btn");
+  if (!btn) return;
+  await fetch(`${API}/chat_logs/${btn.dataset.id}?reviewed=true`, { method: "PATCH" });
+  loadReviewQueue();
+});
+
+document.getElementById("includeReviewedCheckbox").addEventListener("change", loadReviewQueue);
+
+async function refreshReviewBadge() {
+  const res = await fetch(`${API}/chat_logs?low_confidence_only=true&include_reviewed=false`);
+  const logs = await res.json();
+  document.getElementById("reviewBadge").textContent = logs.length || "";
+}
+
+loadProducts();
+refreshReviewBadge();
+</script>
+
+</body>
+</html>
