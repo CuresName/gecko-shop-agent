@@ -25,7 +25,9 @@ ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
 
 # 只有這幾個路徑是客人會用到的，其他一律要通過驗證——
 # 包含 /admin.html、/products*、/chat_logs*、/search/image、/docs 等等。
-PUBLIC_PATHS = {"/", "/chat"}
+# /categories、/catalog/browse 是聊天室「大分類快速瀏覽」按鈕用的，純查資料庫、
+# 不呼叫 LLM，客人不用登入就要能用。
+PUBLIC_PATHS = {"/", "/chat", "/categories", "/catalog/browse"}
 
 # 商品照片是客人聊天時會直接看到的東西，所以整個 /media/uploads/ 底下都公開；
 # /media/chat_log_photos/ 是客人自己上傳、給店家覆核用的私密照片，繼續要密碼保護。

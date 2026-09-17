@@ -126,6 +126,8 @@ def _save_photo_and_embed(product_id: int, photo: UploadFile, db: Session) -> mo
 def create_product(
     species: str = Form(...),
     morph_name: str = Form(...),
+    color: str = Form(""),
+    pattern: str = Form(""),
     price: float = Form(...),
     stock_qty: int = Form(0),
     description: str = Form(""),
@@ -137,6 +139,8 @@ def create_product(
     product = models.Product(
         species=species,
         morph_name=morph_name,
+        color=color,
+        pattern=pattern,
         price=price,
         stock_qty=stock_qty,
         description=description,
@@ -277,6 +281,29 @@ def search_by_image(photo: UploadFile = File(...), top_k: int = 5, db: Session =
     return {"query_photo": photo.filename, "results": results}
 
 
+@app.get("/categories")
+def get_categories(db: Session = Depends(get_db)):
+    """聊天室首頁的大分類按鈕要顯示哪些選項——不呼叫 LLM，純查資料庫。"""
+    return catalog_search.list_category_options(db)
+
+
+@app.get("/catalog/browse")
+def browse_catalog(category: str, value: str | None = None, db: Session = Depends(get_db)):
+    """大分類按鈕點下去查的端點：直接查資料庫回傳商品卡片，**不呼叫 LLM，不花 token**。
+    category 是 species/color/pattern/featured/new_arrival 其中一種。
+    """
+    products = catalog_search.browse_products(db, category=category, value=value)
+
+    response_products = []
+    for p in products:
+        photos = db.query(models.Photo).filter(models.Photo.product_id == p["product_id"]).all()
+        p2 = dict(p)
+        p2["photo_urls"] = [f"/media/uploads/{photo.file_path}" for photo in photos]
+        response_products.append(p2)
+
+    return {"category": category, "value": value, "products": response_products}
+
+
 MAX_HISTORY_TURNS = 10  # 前端會把最近幾輪對話一起送過來，這裡設個上限避免無限累積、拖垮 token 用量
 
 LOG_PHOTO_RETENTION_DAYS = 90  # 只有低信心的對話才會留客人照片，而且只留這麼久（cleanup_chat_logs.py 負責清）
@@ -287,6 +314,7 @@ def chat(
     message: str = Form(""),
     photo: Optional[UploadFile] = File(None),
     history: str = Form("[]"),
+    product_id: Optional[int] = Form(None),
     db: Session = Depends(get_db),
 ):
     """客人問客服的地方：可以純打字，也可以附一張照片（或兩個都有）。
@@ -294,6 +322,10 @@ def chat(
     流程：先從資料庫查出「真的存在、而且信心夠高」的候選商品（有照片就用影像比對，
     沒照片就用關鍵字搜尋），再交給 LLM 組成自然的回覆——LLM 不能提到候選清單以外
     的商品/價格/庫存，回傳的 candidates 欄位就是這次回覆實際依據的資料。
+
+    product_id：前端「大分類瀏覽」點「問這隻多少錢」按鈕時會帶這個，直接指定
+    是在問哪一筆商品——不透過關鍵字搜尋（避免同色系/同花紋的商品太多、關鍵字
+    模糊比對抓錯，或抓到 fallback 推薦而不是客人剛剛實際點的那一隻）。
 
     history：前端（客人瀏覽器）保留的這個分頁最近幾輪對話，讓 LLM 聽得懂「這隻」
     「剛剛那個」這種接續問法——是每個客人自己瀏覽器裡的東西，不同客人不會共用到。
@@ -318,7 +350,14 @@ def chat(
         parsed_history = []
     parsed_history = parsed_history[-MAX_HISTORY_TURNS:]
 
-    if had_photo:
+    if product_id is not None:
+        product = (
+            db.query(models.Product)
+            .filter(models.Product.id == product_id, models.Product.is_active == True)  # noqa: E712
+            .first()
+        )
+        candidates = [catalog_search.product_to_candidate(product)] if product else []
+    elif had_photo:
         photo_suffix = os.path.splitext(photo.filename)[1] or ".jpg"
         photo_bytes = photo.file.read()
         with tempfile.NamedTemporaryFile(delete=False, suffix=photo_suffix) as tmp:

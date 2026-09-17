@@ -109,6 +109,33 @@ def test_chat_endpoint_text_only_wires_candidates_into_llm():
         print(f"[OK] POST /chat（純文字，含對話歷史）：candidates + history 正確帶入 generate_reply，共 {len(body['candidates'])} 筆")
 
 
+def test_chat_endpoint_product_id_bypasses_keyword_search():
+    """大分類瀏覽的「問這隻多少錢」按鈕會直接帶 product_id，不透過關鍵字搜尋——
+    確保這條路徑一定準確指到那一筆商品，不會被同花紋/同色系的其他商品干擾。
+    """
+    captured = {}
+
+    def fake_generate_reply(customer_message, candidates, is_fallback=False, history=None):
+        captured["candidates"] = candidates
+        return "（測試用假回覆）"
+
+    db = SessionLocal()
+    try:
+        target = db.query(Product).filter(Product.is_active == True).first()  # noqa: E712
+    finally:
+        db.close()
+    assert target is not None, "測試資料庫裡應該要有至少一筆上架商品"
+
+    with patch("main.generate_reply", side_effect=fake_generate_reply):
+        resp = client.post("/chat", data={"message": "這隻多少錢？", "product_id": str(target.id)})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body["candidates"]) == 1
+        assert body["candidates"][0]["product_id"] == target.id
+        assert body["is_fallback"] is False
+        print(f"[OK] POST /chat（帶 product_id）：直接指到 product_id={target.id}，不受關鍵字比對影響")
+
+
 def test_chat_endpoint_no_match_falls_back_to_highlights():
     captured = {}
 
@@ -148,6 +175,7 @@ if __name__ == "__main__":
     test_find_candidates_by_text_matches_keyword()
     test_find_candidates_by_text_no_match_returns_empty()
     test_chat_endpoint_text_only_wires_candidates_into_llm()
+    test_chat_endpoint_product_id_bypasses_keyword_search()
     test_chat_endpoint_no_match_falls_back_to_highlights()
     test_find_highlight_candidates_excludes_out_of_stock()
     print("\n全部驗證通過！（LLM 實際回覆品質要自己設定 ANTHROPIC_API_KEY 之後手動測 /chat）")

@@ -99,6 +99,61 @@
     cursor: pointer;
   }
 
+  .category-row {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+  }
+  .category-btn {
+    background: white;
+    border: 1px solid #2d7a46;
+    color: #2d7a46;
+    border-radius: 999px;
+    padding: 0.4rem 0.9rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .category-btn:hover { background: #eef6f1; }
+  .category-btn.back { border-color: #999; color: #666; }
+
+  .product-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    margin-top: 0.4rem;
+  }
+  .product-card {
+    display: flex;
+    gap: 0.7rem;
+    background: #faf9f5;
+    border: 1px solid #e0ddd3;
+    border-radius: 0.7rem;
+    padding: 0.6rem;
+  }
+  .product-card img {
+    width: 64px;
+    height: 64px;
+    object-fit: cover;
+    border-radius: 0.5rem;
+    flex-shrink: 0;
+    cursor: pointer;
+  }
+  .product-card .info { flex: 1; min-width: 0; }
+  .product-card .name { font-weight: 600; font-size: 0.92rem; }
+  .product-card .desc { font-size: 0.82rem; color: #666; margin-top: 0.15rem; }
+  .product-card .ask-btn {
+    margin-top: 0.35rem;
+    background: none;
+    border: 1px solid #2d7a46;
+    color: #2d7a46;
+    border-radius: 999px;
+    padding: 0.2rem 0.7rem;
+    font-size: 0.78rem;
+    cursor: pointer;
+  }
+
   .typing-dots {
     display: inline-flex;
     gap: 0.25rem;
@@ -173,6 +228,10 @@ const sendBtn = document.getElementById("sendBtn");
 // 這個分頁自己的對話歷史——不會存到後端、也不會跟其他客人共用，重新整理就會清空
 let history = [];
 
+// 點「問這隻多少錢」時會設這個，讓下一次 /chat 請求直接指定商品 id（不用關鍵字比對），
+// 送出後立刻清空，之後正常打字問問題不會受影響。
+let pendingProductId = null;
+
 function escapeHtml(text) {
   const div = document.createElement("div");
   div.textContent = text;
@@ -235,7 +294,145 @@ function removeTypingIndicator() {
   if (row) row.remove();
 }
 
+/* ---------- 大分類快速瀏覽（不呼叫 LLM，純查資料庫，不花 token） ---------- */
+
+function addButtonRow(buttons) {
+  const row = document.createElement("div");
+  row.className = "bubble-row bot";
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  bubble.style.background = "transparent";
+  bubble.style.border = "none";
+  bubble.style.padding = "0";
+
+  const btnRow = document.createElement("div");
+  btnRow.className = "category-row";
+  buttons.forEach(({ label, onClick, isBack }) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "category-btn" + (isBack ? " back" : "");
+    btn.textContent = label;
+    btn.addEventListener("click", onClick);
+    btnRow.appendChild(btn);
+  });
+  bubble.appendChild(btnRow);
+  row.appendChild(bubble);
+  messagesEl.appendChild(row);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return row;
+}
+
+let categoryOptions = null; // /categories 的回應，快取起來避免每次點都重打
+
+async function showTopLevelCategories() {
+  if (!categoryOptions) {
+    try {
+      const res = await fetch("/categories");
+      categoryOptions = await res.json();
+    } catch (err) {
+      console.error(err);
+      return;
+    }
+  }
+
+  const buttons = [];
+  if (categoryOptions.species.length) {
+    buttons.push({ label: "🦎 依物種瀏覽", onClick: () => showSubCategories("species", "物種", categoryOptions.species) });
+  }
+  if (categoryOptions.colors.length) {
+    buttons.push({ label: "🎨 依顏色瀏覽", onClick: () => showSubCategories("color", "顏色", categoryOptions.colors) });
+  }
+  if (categoryOptions.patterns.length) {
+    buttons.push({ label: "🐆 依花紋瀏覽", onClick: () => showSubCategories("pattern", "花紋", categoryOptions.patterns) });
+  }
+  buttons.push({ label: "⭐ 熱門推薦", onClick: () => browseCategory("featured", null, "熱門推薦") });
+  buttons.push({ label: "🆕 新品上市", onClick: () => browseCategory("new_arrival", null, "新品上市") });
+
+  if (buttons.length) addButtonRow(buttons);
+}
+
+function showSubCategories(categoryType, groupLabel, values) {
+  const buttons = values.map((value) => ({
+    label: value,
+    onClick: () => browseCategory(categoryType, value, `${groupLabel}：${value}`),
+  }));
+  buttons.push({ label: "← 返回", isBack: true, onClick: () => showTopLevelCategories() });
+  addButtonRow(buttons);
+}
+
+function renderProductCards(products) {
+  const row = document.createElement("div");
+  row.className = "bubble-row bot";
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+
+  if (!products.length) {
+    bubble.textContent = "這個分類目前沒有上架中的商品耶，換一個看看？";
+    row.appendChild(bubble);
+    messagesEl.appendChild(row);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return;
+  }
+
+  const cardsDiv = document.createElement("div");
+  cardsDiv.className = "product-cards";
+  products.forEach((p) => {
+    const card = document.createElement("div");
+    card.className = "product-card";
+    const photoUrl = (p.photo_urls || [])[0];
+    if (photoUrl) {
+      const img = document.createElement("img");
+      img.src = photoUrl;
+      img.alt = p.morph_name;
+      img.addEventListener("click", () => window.open(photoUrl, "_blank"));
+      card.appendChild(img);
+    }
+    const info = document.createElement("div");
+    info.className = "info";
+    info.innerHTML = `
+      <div class="name">${escapeHtml(p.species)} · ${escapeHtml(p.morph_name)}</div>
+      <div class="desc">${escapeHtml(p.description || "")}</div>
+    `;
+    const askBtn = document.createElement("button");
+    askBtn.type = "button";
+    askBtn.className = "ask-btn";
+    askBtn.textContent = "問這隻多少錢／有貨嗎";
+    askBtn.addEventListener("click", () => {
+      input.value = `${p.morph_name} 多少錢？還有貨嗎？`;
+      pendingProductId = p.product_id; // 直接指定商品，避免關鍵字比對抓錯/抓不到
+      form.requestSubmit();
+    });
+    info.appendChild(askBtn);
+    card.appendChild(info);
+    cardsDiv.appendChild(card);
+  });
+  bubble.appendChild(cardsDiv);
+  row.appendChild(bubble);
+  messagesEl.appendChild(row);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+async function browseCategory(category, value, label) {
+  addBubble("user", `📂 ${label}`);
+  addTypingIndicator();
+  try {
+    const params = new URLSearchParams({ category });
+    if (value) params.set("value", value);
+    const res = await fetch(`/catalog/browse?${params.toString()}`);
+    const data = await res.json();
+    removeTypingIndicator();
+    renderProductCards(data.products || []);
+  } catch (err) {
+    removeTypingIndicator();
+    console.error(err);
+    addBubble("bot", "抱歉，查詢時出了點問題，可以再試一次嗎？");
+  }
+  // 瀏覽完再把主選單秀一次，方便繼續逛
+  showTopLevelCategories();
+}
+
 addBubble("bot", "哈囉～歡迎光臨🦎 想找什麼樣式、顏色的守宮都可以直接問我，也可以問問目前有什麼推薦的！");
+showTopLevelCategories();
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -252,6 +449,10 @@ form.addEventListener("submit", async (e) => {
     const formData = new FormData();
     formData.append("message", message);
     formData.append("history", JSON.stringify(history));
+    if (pendingProductId !== null) {
+      formData.append("product_id", pendingProductId);
+      pendingProductId = null;
+    }
 
     const res = await fetch("/chat", { method: "POST", body: formData });
     if (!res.ok) throw new Error(`伺服器回應錯誤（${res.status}）`);

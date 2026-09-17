@@ -39,7 +39,7 @@ NEW_ARRIVAL_DAYS = 14
 NEW_ARRIVAL_FALLBACK_COUNT = 5
 
 
-def _product_to_candidate(product: Product, similarity_percent: float | None = None) -> dict:
+def product_to_candidate(product: Product, similarity_percent: float | None = None) -> dict:
     candidate = {
         "product_id": product.id,
         "species": product.species,
@@ -78,7 +78,7 @@ def find_candidates_by_image(
         if similarity_percent < min_similarity:
             continue
 
-        candidates.append(_product_to_candidate(product, similarity_percent))
+        candidates.append(product_to_candidate(product, similarity_percent))
 
     return candidates
 
@@ -131,7 +131,67 @@ def find_candidates_by_text(db: Session, query: str, limit: int = 5) -> list[dic
         .limit(limit)
         .all()
     )
-    return [_product_to_candidate(p) for p in products]
+    return [product_to_candidate(p) for p in products]
+
+
+def list_category_options(db: Session) -> dict:
+    """給聊天室畫「大分類」按鈕用：目前資料庫裡實際存在（上架中、有貨）的
+    物種/顏色/花紋清單——按鈕永遠只會列出真的查得到東西的分類，不會有按了
+    卻查無資料的空分類。"""
+    products = db.query(Product).filter(Product.is_active == True, Product.stock_qty > 0).all()  # noqa: E712
+    return {
+        "species": sorted({p.species for p in products if p.species}),
+        "colors": sorted({p.color for p in products if p.color}),
+        "patterns": sorted({p.pattern for p in products if p.pattern}),
+    }
+
+
+def browse_products(db: Session, category: str, value: str | None = None, limit: int = 12) -> list[dict]:
+    """大分類快速瀏覽用：直接查資料庫回傳商品，**不經過 LLM**——不花 token、
+    幾乎瞬間回應，代價是沒有自然對話的語氣，前端要自己排版成商品卡片。
+
+    刻意不回傳 price/stock_qty（跟 llm_reply.py 的規則一致：不主動報價、
+    不透露確切庫存，客人要問了才透過 /chat 走 LLM 回答）。
+    """
+    base_query = db.query(Product).filter(Product.is_active == True, Product.stock_qty > 0)  # noqa: E712
+
+    if category in ("species", "color", "pattern") and not value:
+        return []
+
+    if category == "species":
+        products = base_query.filter(Product.species == value).order_by(Product.id.desc()).limit(limit).all()
+    elif category == "color":
+        products = base_query.filter(Product.color == value).order_by(Product.id.desc()).limit(limit).all()
+    elif category == "pattern":
+        products = base_query.filter(Product.pattern == value).order_by(Product.id.desc()).limit(limit).all()
+    elif category == "featured":
+        products = (
+            base_query.filter(Product.is_featured == True)  # noqa: E712
+            .order_by(Product.updated_at.desc())
+            .limit(limit)
+            .all()
+        )
+    elif category == "new_arrival":
+        cutoff = datetime.utcnow() - timedelta(days=NEW_ARRIVAL_DAYS)
+        products = base_query.filter(Product.created_at >= cutoff).order_by(Product.created_at.desc()).limit(limit).all()
+        if not products:
+            products = (
+                base_query.order_by(Product.created_at.desc()).limit(min(limit, NEW_ARRIVAL_FALLBACK_COUNT)).all()
+            )
+    else:
+        return []
+
+    return [
+        {
+            "product_id": p.id,
+            "species": p.species,
+            "morph_name": p.morph_name,
+            "color": p.color,
+            "pattern": p.pattern,
+            "description": p.description,
+        }
+        for p in products
+    ]
 
 
 def find_highlight_candidates(db: Session, limit: int = HIGHLIGHT_LIMIT) -> list[dict]:
@@ -175,11 +235,11 @@ def find_highlight_candidates(db: Session, limit: int = HIGHLIGHT_LIMIT) -> list
 
     results = []
     for p in featured:
-        candidate = _product_to_candidate(p)
+        candidate = product_to_candidate(p)
         candidate["highlight_reason"] = "featured"
         results.append(candidate)
     for p in new_arrivals:
-        candidate = _product_to_candidate(p)
+        candidate = product_to_candidate(p)
         candidate["highlight_reason"] = "new_arrival"
         results.append(candidate)
 

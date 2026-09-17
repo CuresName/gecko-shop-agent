@@ -30,6 +30,8 @@ class Product(Base):
     id = Column(Integer, primary_key=True, index=True)
     species = Column(String(100), nullable=False)       # 物種，例如「豹紋守宮」「冠海守宮」
     morph_name = Column(String(150), nullable=False)    # 樣式/花紋名稱，例如「Tangerine」
+    color = Column(String(50), default="")                # 主色（選填），給「依顏色瀏覽」大分類用
+    pattern = Column(String(50), default="")              # 花紋類型（選填），給「依花紋瀏覽」大分類用
     price = Column(Float, nullable=False)
     stock_qty = Column(Integer, nullable=False, default=0)
     description = Column(Text, default="")

@@ -18,6 +18,8 @@ class PhotoOut(BaseModel):
 class ProductBase(BaseModel):
     species: str
     morph_name: str
+    color: str = ""
+    pattern: str = ""
     price: float
     stock_qty: int = 0
     description: str = ""
@@ -27,6 +29,8 @@ class ProductUpdate(BaseModel):
     """更新用：所有欄位都選填，只送你想改的欄位就好（這是你要的「庫存、價格表單」）。"""
     species: str | None = None
     morph_name: str | None = None
+    color: str | None = None
+    pattern: str | None = None
     price: float | None = None
     stock_qty: int | None = None
     description: str | None = None
