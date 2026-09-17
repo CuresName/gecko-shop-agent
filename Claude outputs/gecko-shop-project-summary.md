@@ -58,25 +58,31 @@ Phase 5：紀錄 + 低信心覆核佇列 ──→ 事後可以回頭看系統�
   測試專用路徑，才 import 專案程式**——舊版曾經因為直接刪掉/重建 `gecko_shop.db`，
   不小心洗掉過一次正式資料（詳見下方「發生過的事故」），現在已經修好、不會再發生。
 
-### ✅ Phase 2：影像特徵 + 向量搜尋（已完成，但準確度有已知限制）
+### ✅ Phase 2：影像特徵 + 向量搜尋（已完成——過程中發現「已經在用真的 CLIP 了」）
 
 - `embeddings.py`：把照片轉成特徵向量
 - `vector_store.py`：Chroma 向量資料庫包裝（存向量、找最像的前 k 筆），路徑可用
   `GECKO_SHOP_CHROMA_PATH` 環境變數覆寫
-- `backfill_embeddings.py`：把還沒算過特徵的照片補算一遍
+- `backfill_embeddings.py`：把還沒算過特徵的照片補算一遍——**已改成透過
+  `storage.py` 讀照片**（不管照片存在本機還是 R2 都能用），部署後也能正常跑。
 - API：`POST /search/image`（上傳照片，回傳最像的前幾個商品 + 相似度）
 
-**已知限制（老實講）**：這個雲端開發環境的網路白名單抓不到 huggingface.co，
-沒辦法下載真正的 CLIP 模型權重，所以 `embeddings.py` 先用「顏色直方圖 + 邊緣
-紋理」這種不需要下載任何東西的傳統影像特徵頂著。實測發現這個做法容易被「拍攝
-背景/攝影棚燈光」蓋過守宮本身的顏色差異，準確度還不到能直接給客人用的程度。
-**已經確認：拍照搜尋功能在 CLIP 換上去之前，先不對真客人開放**（Phase 4 v1 也
-因此決定先做純文字版）。
+**重要更正（原本文件寫錯了）**：舊版說法是「這個環境連不到 huggingface.co，
+所以在用顏色直方圖頂著」——**這個說法已經過時**。準備部署時檢查發現
+`embeddings.py` 實際上早就是 `embeddings_clip.py`（真正呼叫 CLIP 模型）的內容
+了，Chroma 裡的向量也確認是 512 維（CLIP `clip-ViT-B-32` 的輸出維度，不是直方圖
+法會有的維度）——這個環境其實連得到 huggingface.co，之前的限制說明沒有跟著更新。
+所以「換上真的 CLIP」這件事其實已經完成，不用再做。
 
-**已經準備好的解法**：`embeddings_clip.py`（真正呼叫 CLIP 模型的版本）已經寫好、
-已經推到你的電腦上。等你把專案部署到有完整網路的地方（自己電腦、Railway...），
-把這個檔案的內容整個蓋掉 `embeddings.py` 就好，`vector_store.py`、`main.py`
-完全不用改——這就是當初把「影像特徵」獨立成一個檔案的用意。
+**測出來的實際情況**：CLIP 對「這是不是豹紋守宮、拍起來像不像同一個場景」抓得
+準（自我比對 10/10 是 100%），但對花紋/顏色這種細節的區分沒有到非常精細——
+拿「橘化」的照片查，前幾名偶爾會混進「雪花系」這種顏色不同的商品（相似度都在
+70-96% 之間，物種/整體外觀相近，但不是我們最在意的「花紋細節」）。這不是「沒接
+CLIP」的問題，是通用 CLIP 模型本來就不是為了「守宮花紋分類」訓練的，算是這個
+方案的天花板，除非之後想做更精細的模型微調。
+
+**沿用之前的決定**：拍照搜尋功能先不主動對客人開放（Phase 4 v1 是純文字版），
+低於 70% 相似度的比對結果會被 Phase 5 標記為低信心、進覆核佇列。
 
 ### ✅ Phase 3：LLM 自動回覆（已完成、已用真的 Claude API 實測過）
 
@@ -188,45 +194,95 @@ Phase 5：紀錄 + 低信心覆核佇列 ──→ 事後可以回頭看系統�
   重講」的規則。加強後跑了 8 次同樣的查詢，價格都正確，但這種數字準確度問題本質上
   無法 100% 保證，之後如果又發現報錯價格，要優先處理。
 
-還沒做（需要你申請帳號/資源才能繼續）：
+**部署已完成，正式網址：https://gecko-shop-app-production.up.railway.app**
 
-- 資料庫換成 Railway 自己的 Postgres；照片存 Cloudflare R2（不用 Railway Volume）。
-  本機開發繼續用 SQLite + 本機檔案。
-- 正式切換那天要寫一支一次性遷移腳本，把現有商品+照片搬過去。
-- 把 `embeddings_clip.py` 換上去，圖片比對準確度會大幅提升。
-- 實際在 Railway 上部署、設定環境變數（`ADMIN_USERNAME`、`ADMIN_PASSWORD`、
-  `ANTHROPIC_API_KEY`、`GECKO_SHOP_ENABLE_RATE_LIMIT=true` 等等）。
+已完成（帳號/資源+程式碼都處理完了）：
+
+- **`storage.py`**：照片儲存抽換層，用 `GECKO_SHOP_STORAGE_BACKEND=r2` 這個環境
+  變數切換本機/R2（不是看 R2 憑證存不存在），本機開發不會因為 `.env` 裡有 R2
+  憑證就悄悄切換行為。已實測：本機模式不受影響、R2 模式上傳/讀取/`/media/`
+  代理端點都正常，圖片正確進 R2、沒有進本機磁碟。
+- **`migrate_to_postgres.py`**：一次性遷移腳本，已經實際跑過——本機 10 筆商品
+  +10 張照片，正式搬到 Railway Postgres + R2 了。
+- **在整理備份時，意外找到事故發生前的原始資料**：`Claude outputs/` 底下一個舊的
+  備份壓縮檔裡，有一份沒被洗掉的原始 `gecko_shop.db`——跟事故後用 AI 猜測重建的
+  資料一比對，大部分都猜錯了（品項名稱、價格都對不上）。已經用這份備份**把本機
+  跟 Postgres 的資料都改回真正原始正確的內容**，不用再等你自己覆核了。
+- **Railway 部署**：專案已經用 `railway up`（CLI 直接上傳，不透過 GitHub 自動部署）
+  部署到 Railway 的 `gecko-shop-app` 服務，`DATABASE_URL` 用 Railway 內部參照
+  變數指到同專案的 Postgres（不會走公開網路）。另外加了一個 Railway Volume
+  掛在 `/data/chroma`，讓 Chroma 向量索引不會因為重新部署就被清空；
+  `HF_HOME` 也指到這個 volume，CLIP 模型權重下載一次後之後部署不用重下。
+- **GitHub 備份**：程式碼另外也推了一份到 `https://github.com/CuresName/gecko-shop-agent`
+  （private repo）——只是版本備份，**不是**部署來源（部署還是走 `railway up`
+  直接上傳這個資料夾，不是 GitHub 自動部署）。`.env` 確認沒有被推上去。
+
+**部署過程中修好的兩個坑**（給以後參考）：
+1. `requirements.txt` 漏了 `sentence-transformers`——`embeddings.py` 其實早就是
+   CLIP 版本，但這個依賴一直沒被列進去，本機能跑是因為環境剛好早就裝過。
+2. 預設 pip 安裝抓的是完整 GPU/CUDA 版 torch，體積龐大又吃記憶體，把 Railway
+   容器記憶體吃爆、一直重開機。已改成從 `https://download.pytorch.org/whl/cpu`
+   裝 CPU 版 torch 解決。
+
+**已用真實環境驗證過**（都是打正式網址測的，不是本機）：
+- 首頁聊天室、後台登入（帳密正確才進得去）、`/chat` 文字問答（報價正確）、
+  商品清單 API 都正常。
+- 圖片比對：辨識結果準確（100% 比對到正確商品），但**單次要 ~60 秒**，在
+  Railway 目前的運算資源下太慢，不適合給客人用——這剛好印證了「拍照搜尋先不
+  對客人開放」這個決定是對的。之後想開放，需要升級 Railway 的服務方案（更多
+  CPU），這是要花錢的決定，故意留給你自己決定，沒有動。
+- 用 `railway ssh` 連進正式環境跑了一次 `backfill_embeddings.py`，10 張照片的
+  向量索引都算好、存進 Railway Volume 了（`/data/chroma`，重新部署不會消失）。
+
+還沒做：
+
+- **後台密碼太弱**：`.env` 裡 `ADMIN_PASSWORD` 目前是 `123456`，你說先不用改，
+  但正式給客人用之前務必換一組更複雜的密碼（後台可以改任何商品價格/庫存）。
+  換掉之後記得同步到 Railway 的環境變數（`railway variable set ADMIN_PASSWORD ...`）。
+- 部署環境要記得排程跑 `cleanup_chat_logs.py`（Railway 有排程功能，之後可以設定）。
+- 如果之後想開放拍照搜尋給客人，先升級 Railway 服務的運算資源方案，不然會很慢。
 
 ## 目前的實際資料
 
-- 10 筆商品（豹紋守宮），樣式名稱是依外觀猜測標註的，不是基因驗證，**正式使用前
-  你要自己覆核一次**（覆核方式：對照 `static/uploads/` 裡的照片，用後台表單
-  `admin.html` 修正物種/樣式/價格/庫存/描述）。
-- 環境設定：`.env`（放 `ANTHROPIC_API_KEY`，已經設定好）、`.env.example`（範本，
-  不含真的 key）、`.gitignore`（排除 `.env`、`*.db`、照片、向量庫等本機資料）。
-- 整個專案的程式碼跟資料庫現在都同步在你電腦的 `C:\Users\admin\Desktop\clip`。
+- 10 筆商品（豹紋守宮），已經用事故前的原始備份核對修正過，是可信的真實資料，
+  已經同步搬到 Railway Postgres + R2 了。
+- 環境設定：`.env`（`ANTHROPIC_API_KEY`、後台帳密、R2 憑證、遷移用的 Postgres
+  連線字串都在這裡，**不會**被 git 追蹤）、`.env.example`（範本，不含真的值）、
+  `.gitignore`（排除 `.env`、`*.db`、照片、向量庫、舊備份壓縮檔等本機資料）。
+- 程式碼：本機在 `C:\Users\admin\Desktop\clip`，另外備份到
+  `https://github.com/CuresName/gecko-shop-agent`（private repo，只是備份，
+  不是部署來源）。
+- 部署：Railway 專案 `gecko-agen`，服務名稱 `gecko-shop-app`（用 `railway up`
+  直接上傳部署，不是接 GitHub 自動部署），同專案裡還有 `Postgres` 服務。
 - `.claude/launch.json`：設定好本機開發伺服器的啟動方式（`uvicorn main:app`，
   port 8000），可以用 Claude Code 的瀏覽器面板直接預覽。
 
-## 發生過的事故（誠實記錄）
+## 發生過的事故（誠實記錄，含後續復原）
 
 2026-09-14 測試時，`validate_phase1.py` 舊版的寫法會在每次執行前直接刪掉
 `gecko_shop.db` 重建，不小心把當時 10 筆真實商品的價格/庫存/描述文字資料洗掉了
-（照片檔案本身沒有被動到，`static/uploads/` 都還在）。確認過沒有 OneDrive/資源回收筒/
-還原點可以救回文字資料後，已經：
+（照片檔案本身沒有被動到，`static/uploads/` 都還在）。當下處理：
 
-1. 修好根本原因——`database.py`/`main.py`/`vector_store.py` 現在都支援用環境變數
+1. 修好根本原因——`database.py`/`main.py`/`vector_store.py` 都支援用環境變數
    （`DATABASE_URL`、`GECKO_SHOP_UPLOAD_DIR`、`GECKO_SHOP_CHROMA_PATH`）覆寫路徑，
    `validate_phase1.py` 一律跑在獨立的測試路徑，不會再動到正式資料。
-2. 對照剩下的照片檔案，依外觀重新猜測樣式、填入可測試的價格/庫存，重建了 10 筆
-   商品紀錄，並重新跑過 `backfill_embeddings.py` 補算影像特徵。
-3. 這批重建的資料**還沒有經過你本人覆核**，跟原本「樣式是 AI 猜的」性質一樣，
-   正式使用前記得核對一次。
+2. 當時對照剩下的照片檔案，依外觀重新猜測樣式、填入測試用的價格/庫存，重建了
+   10 筆商品紀錄（這批是 AI 猜的，跟真實資料有落差）。
+
+**後續更新（2026-09-17）**：準備部署、整理 `Claude outputs/` 資料夾時，發現裡面
+有一個事故發生「之前」的舊備份壓縮檔（`gecko-shop-phase3.zip`），裡面的
+`gecko_shop.db` 是洗掉之前的真實資料。已經用這份備份，把本機跟 Postgres 的商品
+資料都改回真正原始正確的內容（species/morph_name/price/stock_qty/description
+全部核對修正），**不用再手動覆核了**——這批資料現在是可信的。壓縮檔本身因為
+包了一份 `.db` 檔，沒有放進 git 版本控制（保留在本機 `Claude outputs/` 資料夾
+參考用）。
 
 ## 下一步可以做的事
 
-1. 覆核目前這 10 筆商品的樣式/價格/庫存（上面「發生過的事故」重建的那批；現在
-   後台有 AI 猜標籤按鈕可以輔助，但金額/庫存還是要你自己確認）。
-2. 想部署上線時，照「部署」那節的順序處理 Postgres/R2/後台密碼/CLIP，部署後記得
-   排程跑 `cleanup_chat_logs.py`。
-3. Phase 1-5 全部完成，剩下的都是部署/維運面的工作了。
+1. **換掉後台密碼**——目前是 `123456`，正式給客人用之前一定要換更複雜的，換完記得
+   同步更新 Railway 上的環境變數。
+2. 排程 `cleanup_chat_logs.py`（Railway 有排程功能可以設定）。
+3. 想開放拍照搜尋給客人的話，先評估升級 Railway 服務方案（目前運算資源跑 CLIP
+   太慢，~60 秒一次）。
+4. Phase 1-5 全部完成，**已經正式部署上線**：https://gecko-shop-app-production.up.railway.app
+   剩下主要是維運（密碼、排程、未來要不要開放拍照）。
