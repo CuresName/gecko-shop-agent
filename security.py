@@ -23,13 +23,19 @@ from starlette.responses import JSONResponse, Response
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
 
-# 只有這兩個路徑是客人會用到的，其他一律要通過驗證——
+# 只有這幾個路徑是客人會用到的，其他一律要通過驗證——
 # 包含 /admin.html、/products*、/chat_logs*、/search/image、/docs 等等。
 PUBLIC_PATHS = {"/", "/chat"}
+
+# 商品照片是客人聊天時會直接看到的東西，所以整個 /media/uploads/ 底下都公開；
+# /media/chat_log_photos/ 是客人自己上傳、給店家覆核用的私密照片，繼續要密碼保護。
+PUBLIC_PATH_PREFIXES = ("/media/uploads/",)
 
 
 def _is_public_path(path: str) -> bool:
     if path in PUBLIC_PATHS:
+        return True
+    if path.startswith(PUBLIC_PATH_PREFIXES):
         return True
     # 首頁聊天室本身不需要額外的靜態檔案，但保險起見 favicon 這種瀏覽器自動要的東西不擋
     if path == "/favicon.ico":

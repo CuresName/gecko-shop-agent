@@ -84,6 +84,21 @@
     color: #8a2c1f;
   }
 
+  .bubble-photos {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+  }
+  .bubble-photos img {
+    width: 96px;
+    height: 96px;
+    object-fit: cover;
+    border-radius: 0.6rem;
+    border: 1px solid #e0ddd3;
+    cursor: pointer;
+  }
+
   .typing-dots {
     display: inline-flex;
     gap: 0.25rem;
@@ -164,16 +179,46 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-function addBubble(role, text) {
+function addBubble(role, text, photoUrls) {
   const row = document.createElement("div");
   row.className = `bubble-row ${role}`;
   const bubble = document.createElement("div");
   bubble.className = "bubble";
   bubble.innerHTML = escapeHtml(text).replace(/\n/g, "<br>");
+
+  if (photoUrls && photoUrls.length) {
+    const photosDiv = document.createElement("div");
+    photosDiv.className = "bubble-photos";
+    photoUrls.forEach((url) => {
+      const img = document.createElement("img");
+      img.src = url;
+      img.alt = "商品照片";
+      img.addEventListener("click", () => window.open(url, "_blank"));
+      photosDiv.appendChild(img);
+    });
+    bubble.appendChild(photosDiv);
+  }
+
   row.appendChild(bubble);
   messagesEl.appendChild(row);
   messagesEl.scrollTop = messagesEl.scrollHeight;
   return bubble;
+}
+
+function collectPhotoUrls(candidates, maxPhotos = 6) {
+  if (!candidates) return [];
+  const seen = new Set();
+  const urls = [];
+  for (const c of candidates) {
+    for (const url of c.photo_urls || []) {
+      if (!seen.has(url)) {
+        seen.add(url);
+        urls.push(url);
+        if (urls.length >= maxPhotos) return urls;
+      }
+    }
+  }
+  return urls;
 }
 
 function addTypingIndicator() {
@@ -213,7 +258,7 @@ form.addEventListener("submit", async (e) => {
     const data = await res.json();
 
     removeTypingIndicator();
-    addBubble("bot", data.reply);
+    addBubble("bot", data.reply, collectPhotoUrls(data.candidates));
 
     history.push({ role: "user", text: message });
     history.push({ role: "assistant", text: data.reply });

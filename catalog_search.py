@@ -47,6 +47,10 @@ def _product_to_candidate(product: Product, similarity_percent: float | None = N
         "price": product.price,
         "stock_qty": product.stock_qty,
         "description": product.description,
+        # 只給「有沒有照片」這個布林值，不把實際檔名/網址放進去餵給 LLM——
+        # 圖片是 main.py 事後另外組好網址、直接回傳給前端顯示，不需要 LLM 知道路徑，
+        # 這裡只是讓 LLM 講話時知道「這個商品有照片可以附上」。
+        "has_photo": bool(product.photos),
     }
     if similarity_percent is not None:
         candidate["similarity_percent"] = round(similarity_percent, 1)

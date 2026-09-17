@@ -96,7 +96,13 @@ def test_chat_endpoint_text_only_wires_candidates_into_llm():
         assert body["reply"] == "（測試用假回覆，沒有真的呼叫 Claude）"
         assert len(body["candidates"]) >= 1
         assert body["is_fallback"] is False, "關鍵字有比對到東西，就不該是 fallback 模式"
-        assert captured["candidates"] == body["candidates"], "端點回傳的 candidates 要跟真的餵給 LLM 的一致，方便之後記錄稽核"
+        # body["candidates"] 比餵給 LLM 的多一個 photo_urls 欄位（前端顯示用，LLM 不需要看網址）；
+        # 除了這個欄位以外，其他資料要完全一致，才能確保回傳給前端的跟實際依據的資料同一份。
+        assert len(captured["candidates"]) == len(body["candidates"])
+        for sent, returned in zip(captured["candidates"], body["candidates"]):
+            without_photos = {k: v for k, v in returned.items() if k != "photo_urls"}
+            assert sent == without_photos, "端點回傳的 candidates（扣掉 photo_urls）要跟真的餵給 LLM 的一致，方便之後記錄稽核"
+            assert "photo_urls" in returned
         assert captured["history"] == prior_turns, "前端送來的對話歷史要原封不動轉交給 generate_reply，多輪對話才接得起來"
         for c in body["candidates"]:
             assert "橘" in c["morph_name"] or "橘" in (c["description"] or "")

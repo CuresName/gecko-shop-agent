@@ -368,7 +368,20 @@ def chat(
     db.add(log_entry)
     db.commit()
 
-    return {"reply": reply, "candidates": candidates, "is_fallback": is_fallback}
+    # candidates_json / generate_reply 用的是不含照片網址的原始版本（has_photo 只是布林值，
+    # 不佔額外 token）；這裡另外組一份帶實際照片網址的版本回給前端顯示——
+    # /media/uploads/ 是公開路徑（見 security.py），客人瀏覽器直接讀得到。
+    response_candidates = []
+    for c in candidates:
+        c2 = dict(c)
+        if c.get("has_photo"):
+            photos = db.query(models.Photo).filter(models.Photo.product_id == c["product_id"]).all()
+            c2["photo_urls"] = [f"/media/uploads/{p.file_path}" for p in photos]
+        else:
+            c2["photo_urls"] = []
+        response_candidates.append(c2)
+
+    return {"reply": reply, "candidates": response_candidates, "is_fallback": is_fallback}
 
 
 @app.get("/chat_logs")
