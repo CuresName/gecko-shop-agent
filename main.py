@@ -383,6 +383,12 @@ def chat(
             is_fallback = bool(candidates)
             is_low_confidence = True
             low_confidence_reason = "文字關鍵字完全比對不到任何商品，改用精選/新進 fallback"
+        elif all(c["stock_qty"] <= 0 for c in candidates):
+            # 有比對到商品，但剛好都缺貨——額外附上精選/新進的其他候選，讓 LLM 除了老實說
+            # 缺貨，還能順口推薦店裡目前有貨的東西。不設 is_fallback：前段仍是精準比對到的
+            # 商品（只是缺貨），只是額外多附了幾筆有貨的候選，不是整份清單都不精準。
+            extra = [c for c in catalog_search.find_highlight_candidates(db) if c["product_id"] not in {x["product_id"] for x in candidates}]
+            candidates = candidates + extra
 
     reply = generate_reply(message, candidates, is_fallback=is_fallback, history=parsed_history)
 

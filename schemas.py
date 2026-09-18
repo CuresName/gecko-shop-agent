@@ -16,6 +16,7 @@ class PhotoOut(BaseModel):
 
 
 class ProductBase(BaseModel):
+    product_type: str = "gecko"
     species: str
     morph_name: str
     color: str = ""

@@ -42,6 +42,7 @@ NEW_ARRIVAL_FALLBACK_COUNT = 5
 def product_to_candidate(product: Product, similarity_percent: float | None = None) -> dict:
     candidate = {
         "product_id": product.id,
+        "product_type": product.product_type,
         "species": product.species,
         "morph_name": product.morph_name,
         "price": product.price,
@@ -136,13 +137,24 @@ def find_candidates_by_text(db: Session, query: str, limit: int = 5) -> list[dic
 
 def list_category_options(db: Session) -> dict:
     """給聊天室畫「大分類」按鈕用：目前資料庫裡實際存在（上架中、有貨）的
-    物種/顏色/花紋清單——按鈕永遠只會列出真的查得到東西的分類，不會有按了
-    卻查無資料的空分類。"""
-    products = db.query(Product).filter(Product.is_active == True, Product.stock_qty > 0).all()  # noqa: E712
+    物種/顏色/花紋/周邊分類清單——按鈕永遠只會列出真的查得到東西的分類，不會有按了
+    卻查無資料的空分類。守宮（product_type="gecko"）跟周邊用品（"accessory"）分開列，
+    因為周邊用品沒有顏色/花紋這種瀏覽方式，species 欄位在周邊用品上存的是用品分類名稱。"""
+    geckos = (
+        db.query(Product)
+        .filter(Product.is_active == True, Product.stock_qty > 0, Product.product_type == "gecko")  # noqa: E712
+        .all()
+    )
+    accessories = (
+        db.query(Product)
+        .filter(Product.is_active == True, Product.stock_qty > 0, Product.product_type == "accessory")  # noqa: E712
+        .all()
+    )
     return {
-        "species": sorted({p.species for p in products if p.species}),
-        "colors": sorted({p.color for p in products if p.color}),
-        "patterns": sorted({p.pattern for p in products if p.pattern}),
+        "species": sorted({p.species for p in geckos if p.species}),
+        "colors": sorted({p.color for p in geckos if p.color}),
+        "patterns": sorted({p.pattern for p in geckos if p.pattern}),
+        "accessory_categories": sorted({p.species for p in accessories if p.species}),
     }
 
 
@@ -155,15 +167,29 @@ def browse_products(db: Session, category: str, value: str | None = None, limit:
     """
     base_query = db.query(Product).filter(Product.is_active == True, Product.stock_qty > 0)  # noqa: E712
 
-    if category in ("species", "color", "pattern") and not value:
+    if category in ("species", "color", "pattern", "accessory") and not value:
         return []
 
     if category == "species":
-        products = base_query.filter(Product.species == value).order_by(Product.id.desc()).limit(limit).all()
+        products = (
+            base_query.filter(Product.product_type == "gecko", Product.species == value)
+            .order_by(Product.id.desc()).limit(limit).all()
+        )
     elif category == "color":
-        products = base_query.filter(Product.color == value).order_by(Product.id.desc()).limit(limit).all()
+        products = (
+            base_query.filter(Product.product_type == "gecko", Product.color == value)
+            .order_by(Product.id.desc()).limit(limit).all()
+        )
     elif category == "pattern":
-        products = base_query.filter(Product.pattern == value).order_by(Product.id.desc()).limit(limit).all()
+        products = (
+            base_query.filter(Product.product_type == "gecko", Product.pattern == value)
+            .order_by(Product.id.desc()).limit(limit).all()
+        )
+    elif category == "accessory":
+        products = (
+            base_query.filter(Product.product_type == "accessory", Product.species == value)
+            .order_by(Product.id.desc()).limit(limit).all()
+        )
     elif category == "featured":
         products = (
             base_query.filter(Product.is_featured == True)  # noqa: E712

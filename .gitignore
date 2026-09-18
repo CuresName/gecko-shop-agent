@@ -16,5 +16,6 @@ _test_chroma_store/
 # 舊的專案備份壓縮檔（裡面包了一份 gecko_shop.db），只是本機參考用，不用進版本控制
 Claude outputs/*.zip
 
-# seed_test_categories.py 產生的假資料（大分類選單原型測試用，不是真商品）
-static/_test_category_uploads/
+# scrape_taogeckos.py 抓下來的型錄暫存資料（照片+manifest），import_taogeckos.py
+# 匯入資料庫後就用不到了，不用進版本控制
+scrape_staging/

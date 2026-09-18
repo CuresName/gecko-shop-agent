@@ -345,6 +345,9 @@ async function showTopLevelCategories() {
   if (categoryOptions.patterns.length) {
     buttons.push({ label: "🐆 依花紋瀏覽", onClick: () => showSubCategories("pattern", "花紋", categoryOptions.patterns) });
   }
+  if (categoryOptions.accessory_categories && categoryOptions.accessory_categories.length) {
+    buttons.push({ label: "🧰 周邊用品", onClick: () => showSubCategories("accessory", "周邊用品", categoryOptions.accessory_categories) });
+  }
   buttons.push({ label: "⭐ 熱門推薦", onClick: () => browseCategory("featured", null, "熱門推薦") });
   buttons.push({ label: "🆕 新品上市", onClick: () => browseCategory("new_arrival", null, "新品上市") });
 

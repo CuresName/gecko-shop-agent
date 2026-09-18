@@ -81,3 +81,61 @@ def suggest_tags(image_bytes: bytes, media_type: str = "image/jpeg") -> dict:
         "description": result.get("description", ""),
         "confidence_note": result.get("confidence_note", ""),
     }
+
+
+_COLOR_PATTERN_SYSTEM_PROMPT = """你是爬蟲寵物店的商品標籤助理。這次物種跟商品名稱已經知道了，
+只需要看照片補兩件事：主色（color）、花紋類型（pattern），外加一段給客人看的簡短介紹。
+
+規則：
+1. color 填一個顏色詞（例如：橘、黃、白、黑、灰、棕、紅、綠），只能根據照片裡看得到的顏色判斷。
+2. pattern 填一個花紋詞（例如：條紋、斑點、素色、漸層、網紋、雲斑），只能根據照片判斷。
+3. description 用一兩句話向客人介紹外觀特徵（顏色、花紋、體態），自然口語，不要提到價格/庫存。
+4. 只能輸出這個 JSON 格式，不要有其他文字：
+   {"color": "...", "pattern": "...", "description": "..."}
+"""
+
+
+def suggest_color_pattern(image_bytes: bytes, species: str, morph_name: str, media_type: str = "image/jpeg") -> dict:
+    """已知物種/商品名稱時用（例如匯入外部型錄資料）：只叫 AI 補顏色/花紋/簡短介紹，
+    不用重新猜物種——省 token，也避免猜出跟型錄本身標示矛盾的物種。
+    """
+    client = anthropic.Anthropic()
+    image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
+
+    response = client.messages.create(
+        model=MODEL,
+        max_tokens=200,
+        system=_COLOR_PATTERN_SYSTEM_PROMPT,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {"type": "base64", "media_type": media_type, "data": image_b64},
+                    },
+                    {
+                        "type": "text",
+                        "text": f"物種：{species}，商品名稱：{morph_name}。請幫我補 color/pattern/description，用規定的 JSON 格式回答。",
+                    },
+                ],
+            }
+        ],
+    )
+
+    raw_text = response.content[0].text.strip()
+    try:
+        result = json.loads(raw_text)
+    except json.JSONDecodeError:
+        start = raw_text.find("{")
+        end = raw_text.rfind("}")
+        if start != -1 and end != -1:
+            result = json.loads(raw_text[start : end + 1])
+        else:
+            result = {}
+
+    return {
+        "color": result.get("color", ""),
+        "pattern": result.get("pattern", ""),
+        "description": result.get("description", ""),
+    }

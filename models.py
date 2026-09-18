@@ -28,8 +28,11 @@ class Product(Base):
     __tablename__ = "products"
 
     id = Column(Integer, primary_key=True, index=True)
-    species = Column(String(100), nullable=False)       # 物種，例如「豹紋守宮」「冠海守宮」
-    morph_name = Column(String(150), nullable=False)    # 樣式/花紋名稱，例如「Tangerine」
+    product_type = Column(String(20), nullable=False, default="gecko")  # "gecko" 或 "accessory"——
+        # 周邊用品（飼養盒、保溫燈...）也存在同一張表，species 欄位借來放用品分類名稱，
+        # color/pattern 通常空著，這樣 catalog_search / chat 的查詢邏輯不用整套複製一份。
+    species = Column(String(100), nullable=False)       # 物種，例如「豹紋守宮」；周邊用品則放分類，例如「飼養盒、缸」
+    morph_name = Column(String(150), nullable=False)    # 樣式/花紋名稱，例如「Tangerine」；周邊用品則放商品名稱
     color = Column(String(50), default="")                # 主色（選填），給「依顏色瀏覽」大分類用
     pattern = Column(String(50), default="")              # 花紋類型（選填），給「依花紋瀏覽」大分類用
     price = Column(Float, nullable=False)

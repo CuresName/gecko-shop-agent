@@ -89,12 +89,28 @@
 
 <!-- ========== 分頁二：商品清單 ========== -->
 <section id="tab-list" class="tab-panel">
+  <div style="display:flex; gap:1rem; align-items:center; margin-bottom:0.6rem; flex-wrap:wrap;">
+    <label style="font-size:0.85rem; color:#555; display:flex; align-items:center; gap:0.4rem;">
+      <input type="checkbox" id="pendingOnlyCheckbox" style="width:auto" />
+      只顯示待審核（下架中）
+    </label>
+    <label style="font-size:0.85rem; color:#555; display:flex; align-items:center; gap:0.4rem;">
+      類型
+      <select id="typeFilterSelect">
+        <option value="">全部</option>
+        <option value="gecko">🦎 守宮</option>
+        <option value="accessory">🧰 周邊用品</option>
+      </select>
+    </label>
+    <button id="bulkActivateBtn">把目前篩選出來的全部上架</button>
+    <span class="hint" id="listCount"></span>
+  </div>
   <table>
     <thead>
-      <tr><th>照片</th><th>物種 / 樣式</th><th>價格</th><th>庫存</th><th>精選</th><th>狀態</th><th>操作</th></tr>
+      <tr><th>照片</th><th>類型</th><th>物種 / 樣式</th><th>價格</th><th>庫存</th><th>精選</th><th>狀態</th><th>操作</th></tr>
     </thead>
     <tbody id="productTableBody">
-      <tr><td colspan="7">載入中...</td></tr>
+      <tr><td colspan="8">載入中...</td></tr>
     </tbody>
   </table>
 </section>
@@ -153,14 +169,28 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
 });
 
 /* ---------- 商品清單（分頁二） ---------- */
+let allProducts = [];
+
 async function loadProducts() {
   const res = await fetch(`${API}/products?include_inactive=true`);
-  const products = await res.json();
+  allProducts = await res.json();
+  renderProductTable();
+}
+
+function renderProductTable() {
+  const pendingOnly = document.getElementById("pendingOnlyCheckbox").checked;
+  const typeFilter = document.getElementById("typeFilterSelect").value;
+
+  let products = allProducts;
+  if (pendingOnly) products = products.filter(p => !p.is_active);
+  if (typeFilter) products = products.filter(p => p.product_type === typeFilter);
+
   const tbody = document.getElementById("productTableBody");
   tbody.innerHTML = "";
+  document.getElementById("listCount").textContent = `共 ${products.length} 筆`;
 
   if (products.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7">還沒有商品，先去「批量新增」分頁加幾筆看看。</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8">沒有符合條件的商品。</td></tr>`;
     return;
   }
 
@@ -169,9 +199,11 @@ async function loadProducts() {
     if (!p.is_active) tr.classList.add("inactive-row");
 
     const photosHtml = p.photos.map(ph => `<img src="/media/uploads/${ph.file_path}" alt="">`).join("");
+    const typeLabel = p.product_type === "accessory" ? "🧰 周邊" : "🦎 守宮";
 
     tr.innerHTML = `
       <td>${photosHtml || "（無照片）"}</td>
+      <td>${typeLabel}</td>
       <td><strong>${p.species}</strong><br><span style="color:#666">${p.morph_name}</span></td>
       <td><input class="inline-num" type="number" value="${p.price}" data-field="price" data-id="${p.id}"></td>
       <td><input class="inline-num" type="number" value="${p.stock_qty}" data-field="stock_qty" data-id="${p.id}"></td>
@@ -185,6 +217,33 @@ async function loadProducts() {
     tbody.appendChild(tr);
   }
 }
+
+document.getElementById("pendingOnlyCheckbox").addEventListener("change", renderProductTable);
+document.getElementById("typeFilterSelect").addEventListener("change", renderProductTable);
+
+document.getElementById("bulkActivateBtn").addEventListener("click", async () => {
+  const pendingOnly = document.getElementById("pendingOnlyCheckbox").checked;
+  const typeFilter = document.getElementById("typeFilterSelect").value;
+  let products = allProducts.filter(p => !p.is_active);
+  if (typeFilter) products = products.filter(p => p.product_type === typeFilter);
+  if (!pendingOnly) {
+    // 沒勾「只顯示待審核」時，bulk 上架只作用在目前畫面上真的還是下架狀態的那些筆，避免誤觸已上架的
+  }
+  if (products.length === 0) {
+    alert("目前篩選條件下沒有下架中的商品可以上架。");
+    return;
+  }
+  if (!confirm(`確定要把這 ${products.length} 筆商品一次上架嗎？上架前請先確認每一筆的庫存數字是對的。`)) return;
+
+  for (const p of products) {
+    await fetch(`${API}/products/${p.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_active: true }),
+    });
+  }
+  await loadProducts();
+});
 
 document.getElementById("productTableBody").addEventListener("click", async (e) => {
   const btn = e.target.closest("button");
