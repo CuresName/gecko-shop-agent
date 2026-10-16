@@ -74,6 +74,7 @@ class ChatLog(Base):
     customer_message = Column(Text, default="")
     reply = Column(Text, nullable=False)
     candidates_json = Column(Text, default="[]")          # candidates 清單，存成 JSON 字串
+    knowledge_chunks_json = Column(Text, default="[]")    # 這通回覆實際引用到的飼養知識片段，存成 JSON 字串
     is_fallback = Column(Boolean, default=False)
     is_low_confidence = Column(Boolean, default=False)
     low_confidence_reason = Column(String(200), default="")

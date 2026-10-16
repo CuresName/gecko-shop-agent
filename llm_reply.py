@@ -56,11 +56,17 @@ SYSTEM_PROMPT = """你是一間守宮（壁虎）專賣店的客服助理，個�
     （不管是守宮還是周邊用品），可以順口推薦清單裡有的其他選項，不要只回「沒有」
     就結束——但一樣只能推薦清單裡真的列出來的東西，不能提清單外的品項。
 12. 如果客人問的是飼養方式相關的一般知識（例如溫濕度怎麼抓、多久餵一次、要不要
-    用保溫燈、新手怎麼挑守宮等等），可以直接用你自己的爬蟲飼養知識回答，這種一般
-    知識不受「只能講候選清單裡的東西」限制；但如果你順帶提到需要用到什麼周邊用品
+    用保溫燈、新手怎麼挑守宮等等），可以用飼養知識回答，這種一般知識不受
+    「只能講候選清單裡的東西」限制；但如果你順帶提到需要用到什麼周邊用品
     （保溫燈、飼養盒等），只能推薦候選清單裡真的有列出來的品項，不要編店裡沒有的
-    商品或報不確定的價格。拿不準、沒把握講對的飼養知識，就老實說建議客人再查證或
-    請教獸醫，不要瞎掰。
+    商品或報不確定的價格。
+13. 關於飼養知識優先順序：如果「店內飼養知識」區塊有內容，那是店家自己寫的、
+    針對這個品種的真實資料，回答時優先引用這份資料裡的內容，講法要自然（可以
+    提一句「這是我們這邊整理的資料」之類的，不用生硬地逐字照抄）；如果這個區塊
+    是空的，或裡面的內容跟客人問的主題對不上，就用你自己的飼養知識回答，不要
+    因為查不到店內資料就說不知道——飼養知識跟價格/庫存不一樣，不是非得資料庫裡
+    有才能講。不管是哪個來源，拿不準、沒把握講對的內容，就老實說建議客人再查證
+    或請教獸醫，不要瞎掰。
 """
 
 
@@ -69,6 +75,7 @@ def generate_reply(
     candidates: list[dict],
     is_fallback: bool = False,
     history: list[dict] | None = None,
+    knowledge_chunks: list[dict] | None = None,
 ) -> str:
     """candidates 來自 catalog_search.find_candidates_by_image/find_candidates_by_text，
     每筆至少有 product_id/species/morph_name/price/stock_qty/description。
@@ -81,6 +88,11 @@ def generate_reply(
     [{"role": "user"/"assistant", "text": "..."}, ...]，讓 LLM 聽得懂「這隻」「剛剛那個」
     這種需要接續上下文才懂的問法。只有「這一輪」的候選商品才會附上 candidates 佐證資料——
     之前幾輪 LLM 自己講過的話，原封不動當作歷史紀錄餵回去就好，不用重新附證據。
+
+    knowledge_chunks：來自 knowledge_search.find_relevant_knowledge，是店家自己寫的
+    飼養知識片段（可能是空清單——代表查不到相關資料，不是店裡沒有這個品種）。
+    跟 candidates 不同，這個區塊是「輔助」不是「嚴格限制」：LLM 可以在這份資料不足時
+    退回自己的飼養知識，規則寫在 system prompt 第 13 條。
     """
     client = anthropic.Anthropic()  # 會自動讀取環境變數 ANTHROPIC_API_KEY
 
@@ -95,11 +107,21 @@ def generate_reply(
                 "回覆時要讓客人知道這是「目前店裡有的商品」，不能講得像是剛好符合他要的東西。）"
             )
 
+    if not knowledge_chunks:
+        knowledge_block = "（沒有查到特別相關的店內飼養資料——不代表店裡沒有這個品種，用你自己的飼養知識回答就好）"
+    else:
+        knowledge_block = "\n\n".join(
+            f"【{c['species']} - {c['topic']}】\n{c['text']}" for c in knowledge_chunks
+        )
+
     user_content = f"""客人的訊息：
 {customer_message or "（客人只傳了照片，沒有打字）"}
 
 目前查到的商品資訊（只能根據這裡面的內容回答，不可以提到這份資訊以外的商品/價格/庫存）：
 {context_block}
+
+店內飼養知識（輔助資料，查不到或不相關就用你自己的飼養知識回答，規則見第 13 條）：
+{knowledge_block}
 """
 
     messages = []

@@ -77,7 +77,7 @@ def test_find_candidates_by_text_no_match_returns_empty():
 def test_chat_endpoint_text_only_wires_candidates_into_llm():
     captured = {}
 
-    def fake_generate_reply(customer_message, candidates, is_fallback=False, history=None):
+    def fake_generate_reply(customer_message, candidates, is_fallback=False, history=None, knowledge_chunks=None):
         captured["message"] = customer_message
         captured["candidates"] = candidates
         captured["is_fallback"] = is_fallback
@@ -115,7 +115,7 @@ def test_chat_endpoint_product_id_bypasses_keyword_search():
     """
     captured = {}
 
-    def fake_generate_reply(customer_message, candidates, is_fallback=False, history=None):
+    def fake_generate_reply(customer_message, candidates, is_fallback=False, history=None, knowledge_chunks=None):
         captured["candidates"] = candidates
         return "（測試用假回覆）"
 
@@ -139,7 +139,7 @@ def test_chat_endpoint_product_id_bypasses_keyword_search():
 def test_chat_endpoint_no_match_falls_back_to_highlights():
     captured = {}
 
-    def fake_generate_reply(customer_message, candidates, is_fallback=False, history=None):
+    def fake_generate_reply(customer_message, candidates, is_fallback=False, history=None, knowledge_chunks=None):
         captured["candidates"] = candidates
         captured["is_fallback"] = is_fallback
         return "（測試用假回覆）"

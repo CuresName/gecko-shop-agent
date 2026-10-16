@@ -26,6 +26,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 import catalog_search
+import knowledge_search
 import models
 import photo_tagging
 import schemas
@@ -390,7 +391,14 @@ def chat(
             extra = [c for c in catalog_search.find_highlight_candidates(db) if c["product_id"] not in {x["product_id"] for x in candidates}]
             candidates = candidates + extra
 
-    reply = generate_reply(message, candidates, is_fallback=is_fallback, history=parsed_history)
+    # 飼養知識庫查詢：跟商品候選是分開的查詢，不管前面是用 product_id/照片/關鍵字
+    # 查到候選商品，只要客人有打字就順便查一次——便宜（不呼叫 LLM，純向量搜尋），
+    # 查不到或不相關就回空清單，讓 generate_reply 退回 LLM 自己的飼養知識。
+    knowledge_chunks = knowledge_search.find_relevant_knowledge(message) if message.strip() else []
+
+    reply = generate_reply(
+        message, candidates, is_fallback=is_fallback, history=parsed_history, knowledge_chunks=knowledge_chunks
+    )
 
     log_photo_path = None
     photo_expires_at = None
@@ -403,6 +411,7 @@ def chat(
         customer_message=message,
         reply=reply,
         candidates_json=json.dumps(candidates, ensure_ascii=False),
+        knowledge_chunks_json=json.dumps(knowledge_chunks, ensure_ascii=False),
         is_fallback=is_fallback,
         is_low_confidence=is_low_confidence,
         low_confidence_reason=low_confidence_reason,
@@ -426,7 +435,12 @@ def chat(
             c2["photo_urls"] = []
         response_candidates.append(c2)
 
-    return {"reply": reply, "candidates": response_candidates, "is_fallback": is_fallback}
+    return {
+        "reply": reply,
+        "candidates": response_candidates,
+        "is_fallback": is_fallback,
+        "knowledge_chunks": knowledge_chunks,
+    }
 
 
 @app.get("/chat_logs")
